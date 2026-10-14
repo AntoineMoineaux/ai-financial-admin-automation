@@ -4,6 +4,8 @@ A six-workflow n8n system that turns a mailbox full of invoices, quotes, receipt
 
 Built and delivered for a client running a property construction project. The client is not named and no client data appears here. See [Why there is no workflow JSON in this repository](#why-there-is-no-workflow-json-in-this-repository).
 
+**In production since June 2026.**
+
 ![System architecture](images/architecture.png)
 
 ## The problem
@@ -60,12 +62,13 @@ Measured on the delivered system:
 
 | | |
 |---|---|
-| Project funding tracked | **$2.0M+**, on the historical back-fill |
-| Payment records structured | **46** |
+| In production since | **June 2026**, with no intervention from me |
 | Records linked to their source email | **46 / 46** |
+| Payment records structured | **46** |
 | Documents centralized | **213** |
 | Contribution transactions verified | **92** |
 | Production workflows delivered | **6** |
+| Project funding tracked | **$2.0M+**, on the historical back-fill |
 | Source emails processed during onboarding | **70+**, in one day |
 
 **Honest framing.** These are onboarding-phase figures, not a running cumulative total. The time saved on that phase is a client estimate of around 17.5 hours, derived from their own estimate of handling time per email, not a measured post-deployment figure. The traceability figure applies to the anonymized public proof layer shown in the screenshots.
