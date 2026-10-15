@@ -62,7 +62,7 @@ Measured on the delivered system:
 
 | | |
 |---|---|
-| In production since | **June 2026**, with no intervention from me |
+| In production since | **June 2026**, with no corrective work needed since |
 | Records linked to their source email | **46 / 46** |
 | Payment records structured | **46** |
 | Documents centralized | **213** |
