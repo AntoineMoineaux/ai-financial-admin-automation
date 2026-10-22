@@ -2,7 +2,7 @@
 
 A six-workflow n8n system that turns a mailbox full of invoices, quotes, receipts and bank statements into a traceable financial record, where **no payment is marked paid until its supporting document is attached**.
 
-Built and delivered for a client running a property construction project. The client is not named and no client data appears here. See [Why there is no workflow JSON in this repository](#why-there-is-no-workflow-json-in-this-repository).
+Built and delivered for a client running a property construction project. The client is not named and no client data appears here. All six production workflows are included, with every name, address, identifier and credential removed. See [What was removed before publishing](#what-was-removed-before-publishing).
 
 **In production since June 2026.**
 
@@ -41,16 +41,18 @@ Gmail (invoices, quotes, receipts, statements, contributions)
   Label the email as processed
 ```
 
-Six workflows:
+Six workflows, all in [`workflows/`](workflows):
 
-| Workflow | Role |
-|---|---|
-| **Email ingestion** | The live pipeline above. Gmail trigger, extraction, routing, upsert, document upload, `processed` label |
-| **Historical backfill** | A one-shot pass over the existing mailbox to build the record retroactively. Frozen after its run, deliberately kept separate from the live pipeline |
-| **Document linking** | Uploads attachments to Drive, records them in a hidden `Documents` sheet, and propagates readable links back into the rows the client actually looks at |
-| **Daily payment alerts** | Scheduled check for overdue, due-soon and review-required items, pushed to Telegram |
-| **Weekly summary** | Scheduled financial digest, pushed to Telegram |
-| **Error handler** | Catches any failure in any of the above and alerts on a separate channel |
+| Workflow | File | Nodes | Role |
+|---|---|---|---|
+| **Email ingestion** | `email-ingestion.json` | 43 | The live pipeline above. Gmail trigger, extraction, routing, upsert, document upload, `processed` label |
+| **Historical backfill** | `historical-backfill.json` | 45 | A one-shot pass over the existing mailbox to build the record retroactively. Frozen after its run, deliberately kept separate from the live pipeline |
+| **Telegram assistant** | `telegram-assistant.json` | 11 | Conversational queries over the live project data, with an authorization gate |
+| **Daily payment alerts** | `daily-payment-alerts.json` | 4 | Scheduled check for overdue, due-soon and review-required items, pushed to Telegram |
+| **Weekly summary** | `weekly-summary.json` | 5 | Scheduled financial digest, pushed to Telegram |
+| **Error handler** | `error-handler.json` | 3 | Catches any failure in any of the above and alerts on a separate channel |
+
+111 nodes and about 2,400 lines of JavaScript in code nodes. Document linking is not a seventh workflow: it lives inside the ingestion and backfill pipelines, which upload each attachment to Drive, record it in a hidden `Documents` sheet, and propagate the readable link back into the rows the client actually looks at.
 
 A Telegram assistant sits on top: an authorised user asks a question in plain language, the system fetches the relevant sheet context, Claude answers against it, and the answer carries links back to the source email and the source document.
 
@@ -75,7 +77,17 @@ Measured on the delivered system:
 
 ## The design decisions worth reading
 
-**A record is not complete until its evidence is attached.** A payment stays `pending` while its supporting document is missing, even when the amount and the date are known. The status field answers "can I prove this", not "did I type this in". That one rule is what makes the record defensible six months later.
+**A record is not complete until its evidence is attached.** A payment stays `pending` while its supporting document is missing, even when the amount and the date are known. The status field answers "can I prove this", not "did I type this in". The evidence is recorded next to the status, in `paid_evidence_source` and `paid_evidence_detail`, so a status can always be traced back to the thing that justified it. That one rule is what makes the record defensible six months later.
+
+![Proof layer](images/proof-layer.png)
+
+**The model's output is normalized against allow-lists, not trusted.** A status has to be one of `PENDING`, `PAID`, `PARTIALLY_PAID`, `DEPOSIT_PAID`, `AUTO_PAID`, `EXCLUDED` or `UNKNOWN`. Anything else becomes `UNKNOWN` rather than being written through to the sheet. Document types, payers and transaction relevance work the same way. A quote can never be flipped to paid, whatever the evidence looks like. See `normalizeStatus` in the `Parse and Normalize` node.
+
+**Payers are a closed list, resolved by alias.** Incoming money comes from a known payer or from `Unknown`. The resolver matches aliases rather than exact strings, because the same payer appears in a bank line, an email signature and a handwritten receipt under three different spellings. Unrecognised becomes `Unknown` and waits for a human instead of being guessed into the wrong account.
+
+**What gets sent to the model is decided before the call, not after.** Quotes are classified from their text alone, so their PDFs are never uploaded. Receipts, bills and bank statements need the image, so those are sent. Then two hard ceilings apply, 6 MB per file and 14 MB per request, and anything skipped is recorded by name. Sending every attachment to a vision model because it is simpler to code would have multiplied the bill for no extraction gain.
+
+**A failed extraction is an event, not a silence.** When the model returns something unusable, the failure is appended to the timeline and the email is deliberately left without its `processed` label, so the next run picks it up again. Nothing is dropped quietly, and nothing is marked handled just because the code reached the end without throwing.
 
 **Document links are owned by the nodes that write documents, and by nothing else.** An early version let the core upserts write every field on a row, and they silently wiped the document links each time a record was updated. The fix was ownership: the upsert owns the financial fields, the document nodes own the document fields, and the two never write to the same columns.
 
@@ -99,12 +111,36 @@ Measured on the delivered system:
 
 The screenshots in this repository come from the anonymized demonstration layer built for the public case study, not from the client's live account.
 
-## Why there is no workflow JSON in this repository
+## Running it yourself
 
-The exported workflows carry client-specific content in prompts, node labels and routing conditions, including names. Publishing them with names replaced would require certifying that every occurrence was caught across six workflows and several hundred kilobytes, and one missed label in one condition would expose a client who trusted me with their project finances.
+1. Import the six JSON files into n8n.
+2. Create the credentials the nodes expect: Gmail OAuth2, Google Sheets OAuth2, Google Drive OAuth2, Telegram, and an Anthropic credential. Every node points at `REPLACE_WITH_YOUR_CREDENTIAL_ID`.
+3. Replace the placeholders: `REPLACE_WITH_YOUR_SHEET_ID`, `REPLACE_WITH_YOUR_DRIVE_FOLDER_ID`, and the mailbox `project-mailbox@example.com`.
+4. The `Claude API` nodes carry `REPLACE_WITH_YOUR_ANTHROPIC_KEY` as a header value. That is how the original was built and it is not how it should be done: use an n8n credential instead of a header.
+5. Create the spreadsheet tabs the routing writes to: invoices, operating expenses, quotes, contributions, bank transactions, payments, documents, timeline.
+6. Rewrite the payer allow-list in `Parse and Normalize`, `Explode Contributions` and `Explode Bank Transactions` for your own payers. This is most of the work of reusing the system.
+7. Set `Financial Tracker - Error Handler` as the error workflow on the other five. It is not inherited.
 
-So this repository documents the architecture and the decisions, and keeps the code private. If you want to see production n8n code I wrote, that repository exists: [opspilot-ai-lead-intake](https://github.com/AntoineMoineaux/opspilot-ai-lead-intake), a lead intake and qualification system published in full, with its four workflows.
+## What was removed before publishing
+
+No logic changed. What was stripped:
+
+- the owner's first name and surname, including inside the extraction and assistant prompts;
+- the property address and its postcode;
+- the payer and family names, replaced by `PAYER_A`, `PAYER_B` and `PAYER_C`, which is exactly the shape the allow-list already had;
+- the bank's name, which was a keyword in the statement-detection regex;
+- the project mailbox address;
+- the Google Sheet id, the Drive folder id and the cached resource names;
+- all credential ids and names, one of which contained the client's surname;
+- webhook ids, the n8n instance id, and the twenty-two server-side keys the n8n REST API adds to an export, including `homeProject` and `usedCredentials`, which carry the account owner's name and email;
+- an Anthropic API key that had been pasted into a header instead of a credential.
+
+This is done by a script, not by hand. It replaces what it knows about, then checks the output against a list of eighteen patterns that must never appear, and refuses to write any file where one survives. A dirty export cannot reach a commit by accident. Two leaks got through the replacement pass during this work and were caught by that second check: a credential named after the client, and a postcode left stranded when its street address was removed.
+
+What is published is therefore a working template, not a copy of the client's running system. The payer list is three placeholders and the bank keyword is gone, so the routing has to be re-taught before it fits anyone else.
+
+The companion repository, built the same way: [opspilot-ai-lead-intake](https://github.com/AntoineMoineaux/opspilot-ai-lead-intake), a lead intake and qualification system with its four workflows.
 
 ## License
 
-MIT, for the documentation in this repository.
+MIT.

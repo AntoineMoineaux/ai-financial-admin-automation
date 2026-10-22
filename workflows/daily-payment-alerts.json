@@ -1,0 +1,141 @@
+{
+  "name": "Financial Tracker - Daily Payment Alerts",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "daysInterval": 3
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "95724784-b89f-4d6a-9215-da4d47f196d5",
+      "name": "Daily Schedule"
+    },
+    {
+      "parameters": {
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/REPLACE_WITH_YOUR_SHEET_ID/values:batchGet?majorDimension=ROWS&ranges=Payments!A1%3AV700&ranges=Dashboard!A1%3AZ150&ranges=Invoices!A1%3AAH600&ranges=Operating_Expenses!A1%3AAF600&ranges=Documents!A1%3AN700",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        272,
+        0
+      ],
+      "id": "da2f22d7-b44c-4f5c-885b-e898bb876b1f",
+      "name": "Fetch Financial Sheets",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "googleSheetsOAuth2Api credential"
+        },
+        "oAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "oAuth2Api credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const batch = $input.item.json.valueRanges || [];\n\nfunction sheetName(rangeName) {\n  return String(rangeName || '').split('!')[0].replace(/^'/, '').replace(/'$/, '');\n}\n\nfunction parse(range) {\n  if (!range?.values || range.values.length < 2) return [];\n  const headers = range.values[0].map(h => String(h || '').trim());\n  return range.values.slice(1)\n    .filter(row => row.some(cell => String(cell || '').trim() !== ''))\n    .map(row => Object.fromEntries(headers.map((h, i) => [h, row[i] || ''])));\n}\n\nconst sheets = {};\nfor (const r of batch) sheets[sheetName(r.range)] = parse(r);\n\nfunction normKey(value) {\n  return String(value || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/[^a-z0-9]+/g, '');\n}\n\nfunction get(row, aliases) {\n  const map = {};\n  for (const [key, value] of Object.entries(row || {})) map[normKey(key)] = value;\n  for (const alias of aliases) {\n    const value = map[normKey(alias)];\n    if (value !== undefined && value !== null && String(value).trim() !== '') return value;\n  }\n  return '';\n}\n\nfunction escapeHtml(value) {\n  return String(value || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('\"', '&quot;');\n}\n\nfunction extractFirstUrl(value) {\n  const raw = String(value || '').trim();\n  const match = raw.match(/https?:\\/\\/[^\\s\"'<>]+/i);\n  return match ? match[0].replace(/[),.;]+$/g, '') : '';\n}\n\nfunction toNumber(value) {\n  const raw = String(value ?? '').trim()\n    .replace(/[\\s\\u00A0\\u202F]/g, '')\n    .replace(/[^0-9,.-]/g, '');\n  if (!raw) return 0;\n  const comma = raw.lastIndexOf(',');\n  const dot = raw.lastIndexOf('.');\n  let normalized = raw;\n  if (comma > dot) {\n    normalized = raw.replace(/\\./g, '').replace(',', '.');\n  } else if (dot > comma && comma >= 0) {\n    normalized = raw.replace(/,/g, '');\n  } else if (comma >= 0) {\n    normalized = raw.replace(',', '.');\n  }\n  const number = Number(normalized);\n  return Number.isFinite(number) ? number : 0;\n}\n\nfunction money(value) {\n  return 'AUD ' + toNumber(value).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\n}\n\nfunction parseDate(value) {\n  const raw = String(value || '').trim();\n  if (!raw) return null;\n  const direct = new Date(raw);\n  if (!isNaN(direct.getTime())) { direct.setHours(0, 0, 0, 0); return direct; }\n  const parts = raw.split('/');\n  if (parts.length === 3) {\n    const parsed = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));\n    if (!isNaN(parsed.getTime())) { parsed.setHours(0, 0, 0, 0); return parsed; }\n  }\n  return null;\n}\n\nfunction formatDate(value) {\n  const date = parseDate(value);\n  return date ? date.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' }) : '';\n}\n\nconst today = new Date();\ntoday.setHours(0, 0, 0, 0);\nconst soon = new Date(today.getTime() + 7 * 86400000);\n\nfunction rawStatus(row) {\n  return String(get(row, ['Status']) || '').trim().toUpperCase().replace(/\\s+/g, '_');\n}\n\nfunction needsReview(row) {\n  const v = String(get(row, ['Need Review', 'Need_Review']) || '').trim().toLowerCase();\n  return ['true', 'yes', 'y', '1', 'review'].includes(v);\n}\n\nfunction classify(row) {\n  const status = rawStatus(row);\n  const value = toNumber(get(row, ['Amount', 'Amount_Inc_GST', 'Amount_AUD']));\n  const due = parseDate(get(row, ['Date Paid', 'Due_Date', 'Due Date']));\n  if (['PAID', 'AUTO_PAID', 'DEPOSIT_PAID', 'CANCELLED', 'VOID'].includes(status)) return needsReview(row) ? 'REVIEW' : null;\n  if (value > 0 && due && due < today) return 'OVERDUE';\n  if (value > 0 && due && due <= soon) return 'DUE SOON';\n  if (needsReview(row)) return 'REVIEW';\n  if (['PENDING', 'PARTIALLY_PAID', 'UNPAID', 'OPEN', 'AWAITING_PAYMENT'].includes(status) && value > 0) return 'PENDING';\n  return null;\n}\n\nfunction reasonFor(item) {\n  if (item.category === 'OVERDUE') return 'Overdue since ' + item.dueText;\n  if (item.category === 'DUE SOON') return 'Due by ' + item.dueText;\n  if (item.category === 'REVIEW') return 'Needs review';\n  return 'Pending payment';\n}\n\nconst payments = sheets.Payments || [];\nlet allItems = payments.map(row => {\n  const category = classify(row);\n  if (!category) return null;\n  return {\n    category,\n    vendor: get(row, ['Expense Type', 'Source_Tab']) || 'Payment',\n    amount: toNumber(get(row, ['Amount'])),\n    amountText: money(get(row, ['Amount'])),\n    status: rawStatus(row).replaceAll('_', ' ') || 'UNKNOWN',\n    due: parseDate(get(row, ['Date Paid', 'Due_Date', 'Due Date'])),\n    dueText: formatDate(get(row, ['Date Paid', 'Due_Date', 'Due Date'])),\n    title: String(get(row, ['Description/Task', 'Notes']) || '').trim(),\n    link: extractFirstUrl(get(row, ['Links to Gmail', 'Linked Documents', 'Drive_Link']))\n  };\n}).filter(Boolean);\n\nif (!allItems.length) return [];\n\nconst priority = { 'OVERDUE': 1, 'DUE SOON': 2, 'PENDING': 3, 'REVIEW': 4 };\nallItems.sort((a, b) => (priority[a.category] || 9) - (priority[b.category] || 9) || (a.due && b.due ? a.due - b.due : b.amount - a.amount));\n\nconst shown = allItems.slice(0, 6);\nconst hidden = allItems.length - shown.length;\nlet msg = 'PAYER_A House Tracker - Payment Alerts\\n';\nmsg += shown.length + ' priority item(s) shown';\nif (hidden > 0) msg += ' / ' + allItems.length + ' total';\nmsg += '\\n\\n';\n\nshown.forEach((item, index) => {\n  msg += String(index + 1) + '. ' + escapeHtml(item.title || item.vendor).slice(0, 120) + '\\n';\n  msg += '   ' + escapeHtml(item.amountText) + ' - ' + escapeHtml(item.status) + '\\n';\n  msg += '   ' + escapeHtml(reasonFor(item)) + '\\n';\n  msg += item.link ? '   Open: <a href=\"' + escapeHtml(item.link) + '\">source</a>\\n' : '   Open: no link found in tracker\\n';\n  msg += '\\n';\n});\n\nif (hidden > 0) msg += hidden + ' more item(s) hidden. Ask the bot for all payment alerts.\\n';\nmsg = msg.trim();\nif (msg.length > 3900) msg = msg.slice(0, 3800).trim() + '\\n\\nMessage shortened. Ask the bot for the full list.';\n\nreturn [{ json: {\n  message: msg,\n  parse_mode: 'HTML',\n  disable_web_page_preview: true,\n  totalAlertCount: allItems.length,\n  shownAlertCount: shown.length,\n  hiddenAlertCount: hidden,\n  overdueCount: allItems.filter(i => i.category === 'OVERDUE').length,\n  dueSoonCount: allItems.filter(i => i.category === 'DUE SOON').length,\n  reviewCount: allItems.filter(i => i.category === 'REVIEW').length\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        0
+      ],
+      "id": "718f9291-1a2b-4cff-9892-3e4d07454e84",
+      "name": "Build Alerts"
+    },
+    {
+      "parameters": {
+        "chatId": "7515372207",
+        "text": "={{ String($json.message || '').slice(0, 3900) }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        784,
+        0
+      ],
+      "id": "d4a589f0-ea59-4c5e-9541-9d0ac0db72e6",
+      "name": "Send Alert to PAYER_A",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "telegramApi credential"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily Schedule": {
+      "main": [
+        [
+          {
+            "node": "Fetch Financial Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Financial Sheets": {
+      "main": [
+        [
+          {
+            "node": "Build Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Alerts": {
+      "main": [
+        [
+          {
+            "node": "Send Alert to PAYER_A",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "oTPwkfV8x2NQYgGO",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": {
+    "node:Daily Schedule": {
+      "recurrenceRules": [
+        272
+      ],
+      "recurrenceRuleSignatures": [
+        "days:3"
+      ]
+    }
+  }
+}

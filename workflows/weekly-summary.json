@@ -1,0 +1,168 @@
+{
+  "name": "Financial Tracker - Weekly Summary",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 8 * * 1"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -800,
+        96
+      ],
+      "id": "f3dba133-c96f-4905-9fa5-a76f0e80cf75",
+      "name": "Weekly Schedule"
+    },
+    {
+      "parameters": {
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/REPLACE_WITH_YOUR_SHEET_ID/values:batchGet?majorDimension=ROWS&ranges=Dashboard!A1%3AZ150&ranges=Payments!A1%3AV600&ranges=Invoices!A1%3AAH600&ranges=Operating_Expenses!A1%3AAF600&ranges=Quotes!A1%3AP400&ranges=Contributions!A1%3AO700&ranges=Timeline!A1%3AN500&ranges=Documents!A1%3AN700&ranges=Bank_Transactions!A1%3AV500&ranges=Agent_Memory!A1%3AE500&ranges=Config!A1%3AC100",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -528,
+        96
+      ],
+      "id": "ab8f5180-8703-4dc2-b1a4-5e7ecafeea90",
+      "name": "Fetch All Sheets",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "googleSheetsOAuth2Api credential"
+        },
+        "oAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "oAuth2Api credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.item.json.valueRanges || [];\n\nfunction sheetName(rangeName) {\n  return String(rangeName || '').split('!')[0].replace(/^'/, '').replace(/'$/, '');\n}\n\nfunction parse(range) {\n  if (!range?.values || range.values.length < 2) return [];\n  const headers = range.values[0].map(h => String(h || '').trim());\n  return range.values.slice(1)\n    .filter(row => row.some(cell => String(cell || '').trim() !== ''))\n    .map(row => Object.fromEntries(headers.map((h, i) => [h, row[i] || ''])));\n}\n\nconst sheets = {};\nfor (const r of data) sheets[sheetName(r.range)] = parse(r);\n\nfunction get(row, names) {\n  const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');\n  const map = Object.fromEntries(Object.entries(row || {}).map(([k, v]) => [norm(k), v]));\n  for (const name of names) {\n    const v = map[norm(name)];\n    if (v !== undefined && v !== null && String(v).trim() !== '') return v;\n  }\n  return '';\n}\n\nfunction amount(value) {\n  const raw = String(value ?? '').trim()\n    .replace(/[\\s\\u00A0\\u202F]/g, '')\n    .replace(/[^0-9,.-]/g, '');\n  if (!raw) return 0;\n  const comma = raw.lastIndexOf(',');\n  const dot = raw.lastIndexOf('.');\n  let normalized = raw;\n  if (comma > dot) {\n    normalized = raw.replace(/\\./g, '').replace(',', '.');\n  } else if (dot > comma && comma >= 0) {\n    normalized = raw.replace(/,/g, '');\n  } else if (comma >= 0) {\n    normalized = raw.replace(',', '.');\n  }\n  const number = Number(normalized);\n  return Number.isFinite(number) ? number : 0;\n}\n\nfunction money(n) {\n  return '$' + Number(n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' AUD';\n}\n\nfunction status(v) {\n  return String(v || '').trim().toUpperCase().replace(/\\s+/g, '_');\n}\n\nfunction needsReview(row) {\n  const v = String(get(row, ['Need Review', 'Need_Review']) || '').toLowerCase();\n  return ['yes', 'true', '1', 'review'].includes(v);\n}\n\nconst payments = sheets.Payments || [];\nconst contributions = sheets.Contributions || [];\nconst quotes = sheets.Quotes || [];\nconst timeline = sheets.Timeline || [];\nconst docs = sheets.Documents || [];\n\nconst paidPayments = payments.filter(r => ['PAID', 'AUTO_PAID', 'DEPOSIT_PAID', 'PARTIALLY_PAID'].includes(status(get(r, ['Status']))));\nconst pendingPayments = payments.filter(r => ['PENDING', 'DUE', 'OVERDUE', 'UNPAID', 'OPEN', 'AWAITING_PAYMENT', 'PARTIALLY_PAID'].includes(status(get(r, ['Status']))));\nconst reviewPayments = payments.filter(needsReview);\nconst openQuotes = quotes.filter(r => ['RECEIVED', 'UNDER_REVIEW', 'TO_REVIEW', 'PENDING'].includes(status(get(r, ['Status', 'Decision']))));\n\nconst totalPaid = paidPayments.reduce((s, r) => s + amount(get(r, ['Amount'])), 0);\nconst pendingAmount = pendingPayments.reduce((s, r) => s + amount(get(r, ['Amount'])), 0);\nconst totalContrib = contributions.reduce((s, r) => s + amount(get(r, ['Amount', 'Amount_AUD'])), 0);\n\nlet message = 'Weekly Summary - the project site\\n\\n';\nmessage += 'Financials\\n';\nmessage += '- Total contributions: ' + money(totalContrib) + '\\n';\nmessage += '- Total paid in Payments: ' + money(totalPaid) + '\\n';\nmessage += '- Pending payment amount: ' + money(pendingAmount) + '\\n';\nmessage += '- Documents stored: ' + docs.length + '\\n\\n';\n\nmessage += 'Attention\\n';\nmessage += '- Pending payments: ' + pendingPayments.length + '\\n';\nmessage += '- Need review: ' + reviewPayments.length + '\\n';\nmessage += '- Open quotes: ' + openQuotes.length + '\\n\\n';\n\nmessage += 'Top pending payments\\n';\nif (!pendingPayments.length) {\n  message += '- No pending payments found.\\n';\n} else {\n  for (const r of pendingPayments.slice(0, 5)) {\n    message += '- ' + (get(r, ['Description/Task']) || 'No description') + ' - ' + money(amount(get(r, ['Amount']))) + ' - ' + (get(r, ['Status']) || 'UNKNOWN') + '\\n';\n  }\n}\n\nmessage += '\\nRecent timeline\\n';\nfor (const r of timeline.filter(x => get(x, ['Description'])).slice(-5).reverse()) {\n  message += '- ' + (get(r, ['Date']) || 'No date') + ' - ' + String(get(r, ['Description'])).slice(0, 120) + '\\n';\n}\n\nmessage += '\\nSuggested actions\\n';\nmessage += '- Review Payments rows marked Need Review.\\n';\nmessage += '- Confirm pending/overdue payments before the next weekly check.\\n';\nmessage += '- Keep document links attached to the relevant Payments rows.';\n\nreturn [{ json: { message: String(message).slice(0, 3900) } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -272,
+        96
+      ],
+      "id": "dd4d8879-dfd0-40be-812a-d6ca48388f33",
+      "name": "Build Weekly Summary"
+    },
+    {
+      "parameters": {
+        "chatId": "7515372207",
+        "text": "={{ String($json.message || '').slice(0, 3900) }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "5beafd19-06da-4609-a854-4527e2ea7146",
+      "name": "Send to PAYER_A",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "telegramApi credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "8107692029",
+        "text": "={{ String($json.message || '').slice(0, 3900) }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        208
+      ],
+      "id": "288756fc-efd0-410c-89d6-762f40991187",
+      "name": "Send Summary to Operator",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "telegramApi credential"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Weekly Schedule": {
+      "main": [
+        [
+          {
+            "node": "Fetch All Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch All Sheets": {
+      "main": [
+        [
+          {
+            "node": "Build Weekly Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Weekly Summary": {
+      "main": [
+        [
+          {
+            "node": "Send to PAYER_A",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Summary to Operator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "oTPwkfV8x2NQYgGO",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": {
+    "node:Weekly Schedule": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  }
+}

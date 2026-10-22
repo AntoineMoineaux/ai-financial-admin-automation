@@ -1,0 +1,79 @@
+{
+  "name": "Financial Tracker - Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b64aa208-cbb7-4b6e-84a9-e11d6ae3bfd2",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $json || {};\nconst workflow = e.workflow?.name || e.workflow?.id || 'Unknown workflow';\nconst nodeName = e.execution?.lastNodeExecuted || e.node?.name || 'Unknown node';\nconst errorMessage = e.execution?.error?.message || e.error?.message || e.message || 'Unknown error';\nconst executionId = e.execution?.id || '';\nlet message = 'House Tracker n8n error\\n\\n';\nmessage += 'Workflow: ' + workflow + '\\n';\nmessage += 'Node: ' + nodeName + '\\n';\nmessage += 'Execution: ' + executionId + '\\n';\nmessage += 'Error: ' + String(errorMessage).slice(0, 1200);\nreturn [{ json: { message: message.slice(0, 3900) } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        0
+      ],
+      "id": "d12dd339-0ff8-45ed-8e82-0e905784257e",
+      "name": "Build Error Message"
+    },
+    {
+      "parameters": {
+        "chatId": "8107692029",
+        "text": "={{ $json.message }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        528,
+        0
+      ],
+      "id": "88676f2f-c4c7-4538-b522-cdf14b8c0ff6",
+      "name": "Send Error to Operator",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "telegramApi credential"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Error Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Error Message": {
+      "main": [
+        [
+          {
+            "node": "Send Error to Operator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null
+}

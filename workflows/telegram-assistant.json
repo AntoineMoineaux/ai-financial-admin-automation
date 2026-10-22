@@ -1,0 +1,528 @@
+{
+  "name": "Financial Tracker - Telegram Assistant",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        2400,
+        624
+      ],
+      "id": "b8bda86a-8782-4aa7-b4ae-f24899cf0f99",
+      "name": "Telegram Trigger",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "telegramApi credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.message.chat.id }}",
+              "rightValue": 7515372207,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            },
+            {
+              "leftValue": "={{ $json.message.chat.id }}",
+              "rightValue": 8107692029,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2624,
+        624
+      ],
+      "id": "e8006021-883b-463f-9fb4-850e3f8747e0",
+      "name": "Check Sender"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.message.chat.id }}",
+        "text": "Sorry, you are not authorised to use this bot.",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2832,
+        848
+      ],
+      "id": "1739e8a4-92a2-4389-99d4-0d4cb587125b",
+      "name": "Send Unauthorized",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "telegramApi credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = $json.message || {};\nconst userMessage = String(msg.text || msg.caption || '').trim() || '(non-text message)';\nconst chatId = String(msg.chat?.id || '');\n\nfunction normalize(value) {\n  return String(value || '')\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .toLowerCase()\n    .replace(/[^a-z0-9]+/g, ' ')\n    .trim();\n}\n\nfunction hasAny(text, words) {\n  return words.some(w => text.includes(w));\n}\n\nconst q = normalize(userMessage);\nconst french = hasAny(q, [' quels ', ' quelle ', ' combien ', ' peux ', ' facture', ' lien', ' paiement', ' devis', ' depense', ' resume', ' stp', ' tu ', ' des '].map(w => w.trim()));\nlet intent = 'global_summary';\nlet incompleteRequest = false;\n\nif (hasAny(q, ['weekly summary', 'resume hebdo', 'resume de la semaine', 'bilan semaine', 'bilan hebdo'])) {\n  intent = 'weekly_summary';\n  incompleteRequest = /\\b(of|de|pour)\\s*$/.test(q);\n} else if (hasAny(q, ['contribution', 'contributions', 'contributed', 'contribute', 'money in', 'incoming money', 'tenant bond', 'PAYER_C', 'apport', 'apports'])) {\n  intent = 'contributions';\n} else if (hasAny(q, ['operating expense', 'operating expenses', 'operating cost', 'operating costs', 'running cost', 'utilities', 'holding cost', 'depense exploitation', 'depenses exploitation', 'charges courantes', 'charges exploitation'])) {\n  intent = 'operating_expenses';\n} else if (hasAny(q, ['invoice', 'invoices', 'facture', 'factures', 'bill', 'bills'])) {\n  intent = 'invoices';\n} else if (hasAny(q, ['unpaid', 'pending', 'overdue', 'due soon', 'to pay', 'payable', 'owed', 'payment alert', 'need to pay', 'impaye', 'impayes', 'a payer', 'en attente'])) {\n  intent = 'pending_payments';\n} else if (hasAny(q, ['payments', 'payment row', 'payment rows', 'paiements', 'paiement'])) {\n  intent = 'payments';\n} else if (hasAny(q, ['timeline', 'history', 'progress', 'update', 'updates', 'milestone', 'event', 'events', 'news', 'historique', 'evenement', 'evenements', 'dernieres news', 'derniers evenements'])) {\n  intent = 'timeline';\n} else if (hasAny(q, ['quote', 'quotes', 'quotation', 'estimate', 'proposal', 'tender', 'devis'])) {\n  intent = 'quotes';\n} else if (hasAny(q, ['gmail', 'drive', 'link', 'links', 'lien', 'liens', 'url', 'source'])) {\n  intent = 'links_lookup';\n} else if (hasAny(q, ['document', 'documents', 'pdf', 'file', 'piece jointe', 'pieces jointes', 'recu', 'recus'])) {\n  intent = 'documents';\n} else if (hasAny(q, ['need review', 'needs review', 'a verifier', 'verification'])) {\n  intent = 'timeline';\n}\n\nconst memoryRange = 'Agent_Memory!A1:E6000';\nconst rangesByIntent = {\n  links_lookup: [\n    'Payments!A1:V700',\n    'Invoices!A1:AH600',\n    'Timeline!A1:N700',\n    'Operating_Expenses!A1:AF600',\n    'Quotes!A1:P600',\n    'Documents!A1:N900',\n    memoryRange\n  ],\n  weekly_summary: [\n    'Payments!A1:V700',\n    'Contributions!A1:O800',\n    'Timeline!A1:N700',\n    'Operating_Expenses!A1:AF600',\n    'Quotes!A1:P600',\n    'Documents!A1:N900',\n    memoryRange\n  ],\n  operating_expenses: [\n    'Operating_Expenses!A1:AF600',\n    'Documents!A1:N900',\n    memoryRange\n  ],\n  invoices: [\n    'Invoices!A1:AH600',\n    'Payments!A1:V700',\n    'Documents!A1:N900',\n    memoryRange\n  ],\n  payments: [\n    'Payments!A1:V700',\n    'Documents!A1:N900',\n    'Invoices!A1:AH600',\n    memoryRange\n  ],\n  pending_payments: [\n    'Payments!A1:V700',\n    'Invoices!A1:AH600',\n    'Operating_Expenses!A1:AF600',\n    'Documents!A1:N900',\n    memoryRange\n  ],\n  contributions: [\n    'Contributions!A1:O800',\n    'Documents!A1:N700',\n    memoryRange\n  ],\n  quotes: [\n    'Quotes!A1:P600',\n    'Payments!A1:V700',\n    'Documents!A1:N700',\n    'Timeline!A1:N600',\n    memoryRange\n  ],\n  documents: [\n    'Documents!A1:N900',\n    'Payments!A1:V700',\n    'Invoices!A1:AH600',\n    'Operating_Expenses!A1:AF600',\n    'Quotes!A1:P600',\n    'Timeline!A1:N700',\n    memoryRange\n  ],\n  timeline: [\n    'Timeline!A1:N700',\n    'Payments!A1:V700',\n    'Documents!A1:N900',\n    memoryRange\n  ],\n  global_summary: [\n    'Payments!A1:V700',\n    'Contributions!A1:O800',\n    'Quotes!A1:P500',\n    'Timeline!A1:N700',\n    'Documents!A1:N900',\n    memoryRange\n  ]\n};\n\nconst ranges = rangesByIntent[intent] || rangesByIntent.global_summary;\nif (!ranges.includes('Dashboard!A1:Z200')) ranges.push('Dashboard!A1:Z200');\nconst query = ranges.map(r => 'ranges=' + encodeURIComponent(r)).join('&');\nconst fetchUrl = 'https://sheets.googleapis.com/v4/spreadsheets/REPLACE_WITH_YOUR_SHEET_ID/values:batchGet?majorDimension=ROWS&' + query;\n\nreturn { json: {\n  userMessage,\n  chatId,\n  responseLanguage: french ? 'French' : 'English',\n  intent,\n  incompleteRequest,\n  ranges,\n  fetchUrl,\n  tokenSafetyMode: 'v4_reliable_links_verified_totals',\n  timestamp: new Date().toISOString()\n}};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2848,
+        624
+      ],
+      "id": "434a0e64-b5ac-4fd4-bddc-fc37f9b4d212",
+      "name": "Normalize + Route"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.fetchUrl }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3104,
+        624
+      ],
+      "id": "d5dca132-c369-43bd-9068-3792a62a944f",
+      "name": "Fetch Context batchGet",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "oAuth2Api credential"
+        },
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "googleSheetsOAuth2Api credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const route = $('Normalize + Route').item.json;\nconst batch = $input.item.json.valueRanges || [];\n\nfunction sheetName(rangeName) {\n  return String(rangeName || '').split('!')[0].replace(/^'/, '').replace(/'$/, '');\n}\nfunction parse(range) {\n  if (!range?.values || range.values.length < 2) return [];\n  const headers = range.values[0].map(h => String(h || '').trim());\n  return range.values.slice(1)\n    .filter(row => row.some(cell => String(cell || '').trim() !== ''))\n    .map(row => Object.fromEntries(headers.map((h, i) => [h, row[i] ?? ''])));\n}\nconst sheetData = {};\nfor (const range of batch) {\n  const name = sheetName(range.range);\n  if (name) sheetData[name] = parse(range);\n}\nfunction normKey(value) {\n  return String(value || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/[^a-z0-9]+/g, '');\n}\nfunction get(row, aliases) {\n  const map = {};\n  for (const [key, value] of Object.entries(row || {})) map[normKey(key)] = value;\n  for (const alias of aliases) {\n    const value = map[normKey(alias)];\n    if (value !== undefined && value !== null && String(value).trim() !== '') return value;\n  }\n  return '';\n}\nfunction amount(value) {\n  const raw = String(value ?? '').trim().replace(/[\\s\\u00A0\\u202F]/g, '').replace(/[^0-9,.-]/g, '');\n  if (!raw) return 0;\n  const comma = raw.lastIndexOf(',');\n  const dot = raw.lastIndexOf('.');\n  let normalized = raw;\n  if (comma > dot) normalized = raw.replace(/\\./g, '').replace(',', '.');\n  else if (dot > comma && comma >= 0) normalized = raw.replace(/,/g, '');\n  else if (comma >= 0) normalized = raw.replace(',', '.');\n  const number = Number(normalized);\n  return Number.isFinite(number) ? number : 0;\n}\nfunction compactRow(row, keys, maxChars = 220) {\n  const out = {};\n  for (const [label, aliases] of Object.entries(keys)) {\n    const value = get(row, Array.isArray(aliases) ? aliases : [aliases]);\n    if (value !== '') {\n      const isLink = /drive|gmail|document|statement|link/i.test(label);\n      out[label] = String(value).slice(0, isLink ? 2000 : maxChars);\n    }\n  }\n  return out;\n}\nfunction status(row) {\n  return String(get(row, ['Status']) || '').trim().toUpperCase().replace(/\\s+/g, '_');\n}\nfunction needsReview(row) {\n  return /YES|TRUE|REVIEW/i.test(String(get(row, ['Need Review', 'Need_Review']) || ''));\n}\nfunction hasLink(row) {\n  return Boolean(get(row, ['Drive_Link', 'Linked Documents', 'Gmail_Link', 'Gmail Link', 'Links to Gmail', 'Statement Link']));\n}\nfunction sortByDateDesc(rows, dateAliases = ['Date'], updatedAliases = ['Updated_At', 'Created_At']) {\n  return [...(rows || [])].sort((a, b) => {\n    const aUpdated = Date.parse(String(get(a, updatedAliases) || '')) || 0;\n    const bUpdated = Date.parse(String(get(b, updatedAliases) || '')) || 0;\n    const aDate = Date.parse(String(get(a, dateAliases) || '')) || 0;\n    const bDate = Date.parse(String(get(b, dateAliases) || '')) || 0;\n    return (bDate - aDate) || (bUpdated - aUpdated);\n  });\n}\nfunction cap(rows, max) {\n  return (rows || []).slice(0, max);\n}\nfunction paid(row) {\n  return /PAID|AUTO_PAID|DEPOSIT_PAID|PARTIALLY_PAID/i.test(status(row));\n}\nfunction totalsBy(rows, groupAliases, amountAliases) {\n  const totals = {};\n  for (const row of rows || []) {\n    const label = String(get(row, groupAliases) || 'Unknown');\n    totals[label] = (totals[label] || 0) + amount(get(row, amountAliases));\n  }\n  return Object.fromEntries(Object.entries(totals).map(([label, value]) => [label, value.toFixed(2)]));\n}\nfunction inLastDays(row, aliases, days) {\n  const timestamp = Date.parse(String(get(row, aliases) || ''));\n  if (!timestamp) return false;\n  return timestamp >= Date.now() - days * 86400000;\n}\n\nconst payments = sheetData.Payments || [];\nconst invoices = sheetData.Invoices || [];\nconst operatingExpenses = sheetData.Operating_Expenses || [];\nconst contributions = sheetData.Contributions || [];\nconst quotes = sheetData.Quotes || [];\nconst timeline = sheetData.Timeline || [];\nconst documents = sheetData.Documents || [];\nconst memory = sheetData.Agent_Memory || [];\n\nconst paymentKeys = {\n  Date: ['Date we got Invoice', 'Date Paid'],\n  Type: ['Expense Type'],\n  Description: ['Description/Task'],\n  Amount: ['Amount'],\n  Status: ['Status'],\n  NeedReview: ['Need Review'],\n  PaymentID: ['Payment_ID'],\n  Documents: ['Linked Documents', 'Drive_Link'],\n  Gmail: ['Links to Gmail']\n};\nconst documentKeys = {\n  Date: ['Date'],\n  FileName: ['File_Name'],\n  Type: ['Document_Type'],\n  Vendor: ['Vendor'],\n  RelatedRecord: ['Related_Record_ID'],\n  DriveLink: ['Drive_Link'],\n  GmailLink: ['Gmail_Link']\n};\nconst pendingPayments = payments.filter(row => /PENDING|PARTIALLY|UNPAID|OVERDUE|DUE|OPEN|AWAITING/i.test(status(row)));\nconst reviewRows = [...payments, ...quotes, ...timeline, ...contributions].filter(needsReview);\nconst paidPayments = payments.filter(paid);\nconst linkedPayments = payments.filter(hasLink);\nconst linkedDocuments = documents.filter(hasLink);\nconst linkedTimeline = timeline.filter(hasLink);\nconst linkedInvoices = invoices.filter(hasLink);\nlet focused = {};\n\nif (route.incompleteRequest) {\n  focused = { instruction: 'The request is incomplete. Ask the user what scope or period they want, without providing figures.' };\n} else if (route.intent === 'links_lookup') {\n  focused = {\n    instruction: 'Use recent memory to identify the previously discussed records. If there are matching linked rows, return their URLs now.',\n    recent_linked_payments: cap(sortByDateDesc(linkedPayments, ['Date we got Invoice', 'Date Paid']).map(row => compactRow(row, paymentKeys)), 40),\n    recent_linked_invoices: cap(sortByDateDesc(linkedInvoices).map(row => compactRow(row, {\n      Date: ['Date'], Vendor: ['Vendor'], InvoiceNumber: ['Invoice_Number'], Amount: ['Amount_Inc_GST'], Status: ['Status'], DriveLink: ['Drive_Link'], GmailLink: ['Gmail_Link']\n    })), 40),\n    recent_linked_events: cap(sortByDateDesc(linkedTimeline).map(row => compactRow(row, {\n      Date: ['Date'], Description: ['Description'], Status: ['Status'], RelatedRecord: ['Related_Record_ID'], DriveLink: ['Drive_Link', 'Linked Documents'], GmailLink: ['Gmail Link']\n    })), 40),\n    recent_linked_documents: cap(sortByDateDesc(linkedDocuments).map(row => compactRow(row, documentKeys)), 80)\n  };\n} else if (route.intent === 'contributions') {\n  focused = {\n    authoritative_total_aud: contributions.reduce((sum, row) => sum + amount(get(row, ['Amount', 'Amount_AUD'])), 0).toFixed(2),\n    authoritative_totals_by_contributor_aud: totalsBy(contributions, ['Contributor'], ['Amount', 'Amount_AUD']),\n    contribution_rows: cap(sortByDateDesc(contributions).map(row => compactRow(row, {\n      Date: ['Date'], Contributor: ['Contributor'], Amount: ['Amount', 'Amount_AUD'], Source: ['Source'], Description: ['Description'], Statement: ['Statement Link', 'Drive_Link'], Gmail: ['Gmail Link']\n    })), 120),\n    instruction: 'Use the authoritative precomputed totals exactly. Do not regroup or estimate contributor amounts.'\n  };\n} else if (route.intent === 'operating_expenses') {\n  focused = {\n    operating_expenses: cap(sortByDateDesc(operatingExpenses).map(row => compactRow(row, {\n      Date: ['Date'], Vendor: ['Vendor'], Type: ['Expense_Type'], Amount: ['Amount_Inc_GST', 'Amount_AUD'], Status: ['Status'], Description: ['Description'], NeedReview: ['Need_Review'], DriveLink: ['Drive_Link'], GmailLink: ['Gmail_Link']\n    })), 120),\n    instruction: 'Do not calculate a grand total unless duplicates have been reconciled. The tab may contain both consolidated multi-vendor records and their individual bills; itemize known rows and flag overlap risk.'\n  };\n} else if (route.intent === 'invoices') {\n  focused = {\n    invoices: cap(sortByDateDesc(invoices).map(row => compactRow(row, {\n      Date: ['Date'], Vendor: ['Vendor'], InvoiceNumber: ['Invoice_Number'], Amount: ['Amount_Inc_GST'], Status: ['Status'], Description: ['Description'], NeedReview: ['Need_Review'], DriveLink: ['Drive_Link'], GmailLink: ['Gmail_Link']\n    })), 100),\n    payment_sources: cap(sortByDateDesc(payments, ['Date we got Invoice']).map(row => compactRow(row, paymentKeys)), 100),\n    linked_documents: cap(sortByDateDesc(linkedDocuments).map(row => compactRow(row, documentKeys)), 120)\n  };\n} else if (route.intent === 'payments') {\n  focused = {\n    payments: cap(sortByDateDesc(payments, ['Date we got Invoice', 'Date Paid']).map(row => compactRow(row, paymentKeys)), 100),\n    linked_documents: cap(sortByDateDesc(linkedDocuments).map(row => compactRow(row, documentKeys)), 120)\n  };\n} else if (route.intent === 'pending_payments') {\n  focused = {\n    pending_payments: cap(sortByDateDesc(pendingPayments, ['Date we got Invoice', 'Date Paid']).map(row => compactRow(row, paymentKeys)), 80),\n    needs_review: cap(reviewRows.map(row => compactRow(row, paymentKeys)), 40),\n    linked_source_rows: cap(sortByDateDesc(linkedPayments, ['Date we got Invoice', 'Date Paid']).map(row => compactRow(row, paymentKeys)), 40)\n  };\n} else if (route.intent === 'timeline') {\n  focused = {\n    timeline: cap(sortByDateDesc(timeline).map(row => compactRow(row, {\n      Date: ['Date'], Description: ['Description'], Status: ['Status'], RelatedRecord: ['Related_Record_ID'], DriveLink: ['Drive_Link', 'Linked Documents'], GmailLink: ['Gmail Link']\n    })), 100),\n    related_payment_records: cap(sortByDateDesc(payments, ['Date we got Invoice', 'Date Paid']).map(row => compactRow(row, paymentKeys)), 30),\n    linked_documents: cap(sortByDateDesc(linkedDocuments).map(row => compactRow(row, documentKeys)), 50)\n  };\n} else if (route.intent === 'documents') {\n  focused = {\n    documents: cap(sortByDateDesc(documents).map(row => compactRow(row, documentKeys)), 120),\n    related_payments: cap(sortByDateDesc(linkedPayments, ['Date we got Invoice', 'Date Paid']).map(row => compactRow(row, paymentKeys)), 60)\n  };\n} else if (route.intent === 'quotes') {\n  focused = {\n    quotes: cap(sortByDateDesc(quotes).map(row => compactRow(row, {\n      Date: ['Date'], Vendor: ['Vendor'], QuoteNumber: ['Quote Number', 'Quote_Number'], Amount: ['Amount'], Status: ['Status'], Decision: ['Decision'], NeedReview: ['Need Review'], Documents: ['Linked Documents', 'Drive_Link'], Gmail: ['Links to Gmail']\n    })), 100)\n  };\n} else if (route.intent === 'weekly_summary') {\n  const weekPayments = payments.filter(row => inLastDays(row, ['Date Paid', 'Date we got Invoice'], 7));\n  const weekTimeline = timeline.filter(row => inLastDays(row, ['Date'], 7));\n  focused = {\n    week_payments: cap(sortByDateDesc(weekPayments, ['Date Paid', 'Date we got Invoice']).map(row => compactRow(row, paymentKeys)), 60),\n    week_events: cap(sortByDateDesc(weekTimeline).map(row => compactRow(row, {\n      Date: ['Date'], Description: ['Description'], Status: ['Status'], DriveLink: ['Drive_Link', 'Linked Documents'], GmailLink: ['Gmail Link']\n    })), 60),\n    contribution_total_to_date_aud: contributions.reduce((sum, row) => sum + amount(get(row, ['Amount', 'Amount_AUD'])), 0).toFixed(2),\n    instruction: 'Do not add payments that appear to be duplicate or related records on the same date/vendor. Present them as rows needing confirmation before stating a weekly aggregate.'\n  };\n} else {\n  focused = {\n    authoritative_contribution_total_aud: contributions.reduce((sum, row) => sum + amount(get(row, ['Amount', 'Amount_AUD'])), 0).toFixed(2),\n    authoritative_contributions_by_person_aud: totalsBy(contributions, ['Contributor'], ['Amount', 'Amount_AUD']),\n    pending_payments: cap(sortByDateDesc(pendingPayments, ['Date we got Invoice']).map(row => compactRow(row, paymentKeys)), 30),\n    recent_payments_with_links: cap(sortByDateDesc(linkedPayments, ['Date we got Invoice']).map(row => compactRow(row, paymentKeys)), 15),\n    recent_events_with_links: cap(sortByDateDesc(linkedTimeline).map(row => compactRow(row, {\n      Date: ['Date'], Description: ['Description'], Status: ['Status'], DriveLink: ['Drive_Link', 'Linked Documents'], GmailLink: ['Gmail Link']\n    })), 20)\n  };\n}\n\nfocused.dashboard = sheetData.Dashboard || [];\nconst contextBudgetChars = 50000;\nlet focusedText = JSON.stringify(focused, null, 2);\nif (focusedText.length > contextBudgetChars) {\n  for (const key of Object.keys(focused)) {\n    if (Array.isArray(focused[key]) && focusedText.length > contextBudgetChars) {\n      focused[key] = focused[key].slice(0, Math.max(4, Math.ceil(focused[key].length / 3)));\n      focusedText = JSON.stringify(focused, null, 2);\n    }\n  }\n  focused.context_trimmed_for_token_safety = true;\n  focusedText = JSON.stringify(focused, null, 2);\n}\n\nconst currentChatId = String(route.chatId || '');\nconst recentMemory = memory\n  .filter(row => !currentChatId || String(get(row, ['Chat_ID', 'Chat ID']) || '') === currentChatId)\n  .slice(-16)\n  .map(row => ({\n    timestamp: get(row, ['Timestamp']),\n    role: get(row, ['Role']),\n    message: String(get(row, ['Message']) || '').slice(0, 700)\n  }));\n\nconst system = `You are the financial assistant for a residential construction project.\n\nReply in ${route.responseLanguage || 'English'}, matching the user's latest message.\nUse ONLY the focused Google Sheet data below. Never invent totals, amounts, dates, vendors, statuses, Gmail links or Drive links.\nPayments is the primary operational view for payment questions.\nWhen a value is precomputed as authoritative, repeat it exactly; do not recalculate it.\nFor any total, summary or \"net position\" figure, use the dashboard data below as the single source of truth — never recompute totals from raw Payments/Invoices/Operating_Expenses/Contributions rows if the dashboard already provides that figure.\nIf two rows have the same vendor/date or appear related, never merge them into a single amount without explicit proof. State that there are separate records and request confirmation if a combined total is uncertain.\nIf the user asks for Gmail or Google Drive links, provide all matching full URLs exactly as shown. Never claim links are missing while any matching focused row contains a URL.\nFor a short follow-up such as \"Can I have the links?\", use Recent memory to identify the subject, then retrieve matching URL rows from focused data.\nIf the prompt says a request is incomplete, ask one concise clarification question and provide no assumed summary.\nDo not claim you searched Gmail or Drive directly; you read links stored in the sheet.\nKeep Telegram answers short and factual. Plain text only, no Markdown tables and no emoji.\n\nIntent: ${route.intent}\nFocused sheet data:\n${focusedText}\n\nRecent memory:\n${JSON.stringify(recentMemory, null, 2)}`;\n\nreturn {\n  json: {\n    model: 'claude-sonnet-4-5',\n    max_tokens: 850,\n    system,\n    messages: [{ role: 'user', content: route.userMessage }],\n    chatId: route.chatId,\n    userMessage: route.userMessage,\n    timestamp: route.timestamp || new Date().toISOString(),\n    intent: route.intent,\n    responseLanguage: route.responseLanguage\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        624
+      ],
+      "id": "a13e80e4-8004-4dc1-b512-e3560b94fa2c",
+      "name": "Build Focused Prompt"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "=REPLACE_WITH_YOUR_ANTHROPIC_KEY"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "= {\n    \"model\": \"{{ $json.model }}\",\n    \"max_tokens\": {{ Number($json.max_tokens || 750) }},\n    \"system\": {{ JSON.stringify($json.system) }},\n    \"messages\": {{ JSON.stringify($json.messages) }}\n  }",
+        "options": {
+          "timeout": 45000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3632,
+        624
+      ],
+      "id": "05579e51-f25a-458e-a710-b3fbcee185b3",
+      "name": "Claude API",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "  const route = $('Normalize + Route').item.json;\n\n  let response = 'Sorry, I could not process the request.';\n\n  try {\n    response = $input.item.json.content?.[0]?.text || response;\n  } catch (e) {}\n\n  response = String(response || '')\n    .replace(/\\r/g, '')\n    .replace(/^#{1,6}\\s*/gm, '')\n    .replace(/\\*\\*/g, '')\n    .replace(/__+/g, '')\n    .replace(/[✅⚠️❗📧💰📋🔍📅💡]/g, '')\n    .trim();\n\n  if (!response) {\n    response = 'Sorry, I could not find enough data to answer that.';\n  }\n\n  response = response.slice(0, 3900);\n\n  return {\n    json: {\n      response,\n      userMessage: route.userMessage,\n      chatId: route.chatId,\n      timestamp: new Date().toISOString(),\n      intent: route.intent,\n      responseLanguage: route.responseLanguage || 'English'\n    }\n  };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3888,
+        624
+      ],
+      "id": "57ddadc1-a496-4bed-af91-613661efa249",
+      "name": "Parse Response"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Project Tracker",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/REPLACE_WITH_YOUR_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Agent_Memory",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $json.timestamp }}",
+            "Role": "user",
+            "Message": "={{ $json.userMessage }}",
+            "Source": "telegram-bot-v3",
+            "Chat_ID": "={{ $json.chatId }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Role",
+              "displayName": "Role",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Message",
+              "displayName": "Message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Source",
+              "displayName": "Source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Chat_ID",
+              "displayName": "Chat_ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4128,
+        624
+      ],
+      "id": "3b842fdd-a18c-4fb1-bd3c-240d582b3795",
+      "name": "Save User Memory",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "googleSheetsOAuth2Api credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Project Tracker",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/REPLACE_WITH_YOUR_SHEET_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Agent_Memory",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $('Parse Response').item.json.timestamp }}",
+            "Role": "assistant",
+            "Message": "={{ $('Parse Response').item.json.response }}",
+            "Source": "={{ 'telegram-bot-v3 / ' + $('Parse Response').item.json.intent }}",
+            "Chat_ID": "={{ $('Parse Response').item.json.chatId }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Role",
+              "displayName": "Role",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Message",
+              "displayName": "Message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Source",
+              "displayName": "Source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Chat_ID",
+              "displayName": "Chat_ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4352,
+        624
+      ],
+      "id": "c7749803-3a90-4bc7-8c40-50ff3b174642",
+      "name": "Save Bot Memory",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "googleSheetsOAuth2Api credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Parse Response').item.json.chatId }}",
+        "text": "={{ String($('Parse Response').item.json.response || '').replace(/[\\uD800-\\uDFFF]/g, '').slice(0, 3900) }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "None"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        4560,
+        624
+      ],
+      "id": "470d7ad0-7bde-4d21-8c76-d9b4dab25cbb",
+      "name": "Send Reply",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "telegramApi credential"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Check Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Sender": {
+      "main": [
+        [
+          {
+            "node": "Normalize + Route",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize + Route": {
+      "main": [
+        [
+          {
+            "node": "Fetch Context batchGet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Context batchGet": {
+      "main": [
+        [
+          {
+            "node": "Build Focused Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Focused Prompt": {
+      "main": [
+        [
+          {
+            "node": "Claude API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude API": {
+      "main": [
+        [
+          {
+            "node": "Parse Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Response": {
+      "main": [
+        [
+          {
+            "node": "Save User Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save User Memory": {
+      "main": [
+        [
+          {
+            "node": "Save Bot Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Bot Memory": {
+      "main": [
+        [
+          {
+            "node": "Send Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "oTPwkfV8x2NQYgGO",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null
+}
